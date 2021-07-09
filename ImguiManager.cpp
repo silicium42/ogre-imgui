@@ -181,6 +181,7 @@ ImguiManager::ImguiManager()
 	mSceneMgr = NULL;
 	mScreenWidth = 0;
 	mScreenHeight = 0;
+	mDisplayFunction = NULL;
 }
 ImguiManager::~ImguiManager()
 {
@@ -205,11 +206,12 @@ ImguiManager::~ImguiManager()
 	}
 }
 
-void ImguiManager::init(Ogre::Window* win, Ogre::SceneManager* mgr)
+void ImguiManager::init(Ogre::Window* win, Ogre::SceneManager* mgr, void(*fn)(bool* ))
 {
 	mSceneMgr = mgr;
 	mScreenWidth = win->getWidth();
 	mScreenHeight = win->getHeight();
+	mDisplayFunction = fn;
 
 	Ogre::Root::getSingletonPtr()->addFrameListener(this);
 	mSceneMgr->addRenderQueueListener(this);
@@ -244,7 +246,8 @@ bool ImguiManager::frameStarted(const FrameEvent& evt)
 		Ogre::ImguiManager::getSingleton().newFrame(
 			evt.timeSinceLastFrame,
 			Ogre::Rect(0, 0, mScreenWidth, mScreenHeight));
-		ImGui::ShowDemoWindow();
+		if (mDisplayFunction != NULL)
+			mDisplayFunction(0);
 		render();
 	}
 	return true;

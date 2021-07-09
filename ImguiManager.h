@@ -50,7 +50,7 @@ namespace Ogre
         /// must be called before init()
         ImFont* addFont(const String& name, const String& group = ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
-        virtual void init(Window* win, SceneManager* mgr);
+        virtual void init(Window* win, SceneManager* mgr, void(*fn)(bool*));
 
         virtual void newFrame(float deltaTime,const Ogre::Rect & windowRect);
 
@@ -107,6 +107,7 @@ namespace Ogre
 		uint32 mScreenWidth, mScreenHeight;
         ImGUIRenderable             *mRenderables[MAX_NUM_RENDERABLES];
         TextureGpu*                  mFontTex;
+		void(*mDisplayFunction)(bool*);
 
         bool                        mFrameEnded;
 
