@@ -9,8 +9,8 @@
 #include <OgreMesh.h>
 #include <OgreMeshManager.h>
 #include <OgreSubMesh.h>
-#include <OgreTexture.h>
-#include <OgreTextureManager.h>
+#include <OgreTextureGpu.h>
+#include <OgreTextureGpuManager.h>
 #include <OgreString.h>
 #include <OgreStringConverter.h>
 #include <OgreViewport.h>
@@ -21,25 +21,28 @@
 #include <OgreTechnique.h>
 #include <OgreTextureUnitState.h>
 #include <OgreViewport.h>
-#include <OgreHardwarePixelBuffer.h>
-#include <OgreRenderTarget.h>
 #include "OgreHardwareBufferManager.h"
-
-#if OGRE_VERSION >= 0x10C00
-#include "OgreComponents.h"
-#endif
-
+#include "OgreHlmsDatablock.h"
+#include "OgreHlmsManager.h"
+#include "OgreHlmsUnlit.h"
+#include "OgreHlmsUnlitDatablock.h"
+#include "OgreStagingTexture.h"
+#include "OgreTextureBox.h"
+#include "OgreLogManager.h"
+#include "OgreWindow.h"
+#include "Vao/OgreVaoManager.h"
+#include "Vao/OgreVertexArrayObject.h"
+#include "Compositor/OgreCompositorManager2.h"
+#include <Compositor/OgreCompositorNodeDef.h>
+#include <Compositor/Pass/OgreCompositorPassDef.h>
+#include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
+#include <Compositor/OgreCompositorWorkspaceDef.h>
 #ifdef OGRE_BUILD_COMPONENT_OVERLAY
-#include <OgreFontManager.h>
-#endif
-
-#ifdef HAVE_OGRE_BITES
-#include <OgreInput.h>
+#include <Overlay/OgreFontManager.h>
 #endif
 
 using namespace Ogre;
 
-#ifdef HAVE_OGRE_BITES
 // map sdl2 mouse buttons to imgui
 static int sdl2imgui(int b)
 {
@@ -53,33 +56,26 @@ static int sdl2imgui(int b)
     }
 }
 
-// SDL2 keycode to scancode
-static int kc2sc(int kc)
-{
-    return kc & ~(1 << 30);
-}
-
-struct ImguiInputListener : public OgreBites::InputListener
+struct ImguiInputListener : public InputListener
 {
     ImguiInputListener()
     {
-        using namespace OgreBites;
         ImGuiIO& io = ImGui::GetIO();
         // Keyboard mapping. ImGui will use those indices to peek into the io.KeyDown[] array that we will update during the application lifetime.
-        io.KeyMap[ImGuiKey_Tab] = '\t';
-        io.KeyMap[ImGuiKey_LeftArrow] = kc2sc(SDLK_LEFT);
-        io.KeyMap[ImGuiKey_RightArrow] = kc2sc(SDLK_RIGHT);
-        io.KeyMap[ImGuiKey_UpArrow] = kc2sc(SDLK_UP);
-        io.KeyMap[ImGuiKey_DownArrow] = kc2sc(SDLK_DOWN);
-        io.KeyMap[ImGuiKey_PageUp] = kc2sc(SDLK_PAGEUP);
-        io.KeyMap[ImGuiKey_PageDown] = kc2sc(SDLK_PAGEDOWN);
-        io.KeyMap[ImGuiKey_Home] = -1;
-        io.KeyMap[ImGuiKey_End] = -1;
-        io.KeyMap[ImGuiKey_Delete] = -1;
-        io.KeyMap[ImGuiKey_Backspace] = '\b';
-        io.KeyMap[ImGuiKey_Enter] = '\r';
-        io.KeyMap[ImGuiKey_Escape] = '\033';
-        io.KeyMap[ImGuiKey_Space] = ' ';
+        io.KeyMap[ImGuiKey_Tab] = SDL_SCANCODE_TAB;
+        io.KeyMap[ImGuiKey_LeftArrow] = SDL_SCANCODE_LEFT;
+        io.KeyMap[ImGuiKey_RightArrow] = SDL_SCANCODE_RIGHT;
+        io.KeyMap[ImGuiKey_UpArrow] = SDL_SCANCODE_UP;
+        io.KeyMap[ImGuiKey_DownArrow] = SDL_SCANCODE_DOWN;
+        io.KeyMap[ImGuiKey_PageUp] = SDL_SCANCODE_PAGEUP;
+        io.KeyMap[ImGuiKey_PageDown] = SDL_SCANCODE_PAGEDOWN;
+        io.KeyMap[ImGuiKey_Home] = SDL_SCANCODE_HOME;
+        io.KeyMap[ImGuiKey_End] = SDL_SCANCODE_END;
+		io.KeyMap[ImGuiKey_Backspace] = SDL_SCANCODE_BACKSPACE;
+		io.KeyMap[ImGuiKey_Delete] = SDL_SCANCODE_DELETE;
+        io.KeyMap[ImGuiKey_Enter] = SDL_SCANCODE_RETURN;
+        io.KeyMap[ImGuiKey_Escape] = SDL_SCANCODE_ESCAPE;
+        io.KeyMap[ImGuiKey_Space] = SDL_SCANCODE_SPACE;
         io.KeyMap[ImGuiKey_A] = 'a';
         io.KeyMap[ImGuiKey_C] = 'c';
         io.KeyMap[ImGuiKey_V] = 'v';
@@ -88,25 +84,21 @@ struct ImguiInputListener : public OgreBites::InputListener
         io.KeyMap[ImGuiKey_Z] = 'z';
     }
 
-    bool mouseWheelRolled(const OgreBites::MouseWheelEvent& arg)
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        io.MouseWheel = Ogre::Math::Sign(arg.y);
-        return io.WantCaptureMouse;
-    }
-
-    bool mouseMoved( const OgreBites::MouseMotionEvent &arg )
+    void mouseMoved( const SDL_Event&arg )
     {
 
         ImGuiIO& io = ImGui::GetIO();
+		if(arg.type == SDL_MOUSEWHEEL)
+			io.MouseWheel += Ogre::Math::Sign(arg.wheel.y);
+		else
+		{
+			io.MousePos.x = arg.motion.x;
+			io.MousePos.y = arg.motion.y;
+		}
 
-        io.MousePos.x = arg.x;
-        io.MousePos.y = arg.y;
-
-        return io.WantCaptureMouse;
     }
 
-    bool mousePressed( const OgreBites::MouseButtonEvent &arg)
+    void mousePressed( const SDL_MouseButtonEvent &arg, Ogre::uint8 id)
     {
         ImGuiIO& io = ImGui::GetIO();
         int b = sdl2imgui(arg.button);
@@ -114,9 +106,8 @@ struct ImguiInputListener : public OgreBites::InputListener
         {
             io.MouseDown[b] = true;
         }
-        return io.WantCaptureMouse;
     }
-    bool mouseReleased( const OgreBites::MouseButtonEvent &arg)
+    void mouseReleased( const SDL_MouseButtonEvent &arg, Ogre::uint8 id)
     {
         ImGuiIO& io = ImGui::GetIO();
         int b = sdl2imgui(arg.button);
@@ -124,51 +115,44 @@ struct ImguiInputListener : public OgreBites::InputListener
         {
             io.MouseDown[b] = false;
         }
-        return io.WantCaptureMouse;
     }
-    bool keyPressed( const OgreBites::KeyboardEvent &arg )
+    void keyPressed( const SDL_KeyboardEvent&arg )
     {
-        using namespace OgreBites;
 
         ImGuiIO& io = ImGui::GetIO();
         
         // ignore
-        if(arg.keysym.sym == SDLK_LSHIFT) return io.WantCaptureKeyboard;
+        if(arg.keysym.sym == SDLK_LSHIFT) return;
 
         io.KeyCtrl = arg.keysym.mod & KMOD_CTRL;
-        io.KeyShift = arg.keysym.mod & SDLK_LSHIFT;
+        io.KeyShift = arg.keysym.mod & KMOD_SHIFT;
+		io.KeyAlt = arg.keysym.mod & KMOD_ALT;
+		io.KeySuper = false;
+        int key = arg.keysym.scancode;
 
-        int key = kc2sc(arg.keysym.sym);
-
-        if(key > 0 && key < 512)
-        {
-            io.KeysDown[key] = true;
-            
-            uint16_t sym = arg.keysym.sym;
-            if (io.KeyShift) sym -= 32;
-            io.AddInputCharacter(sym);
-        }
-
-        return io.WantCaptureKeyboard;
+      if(key > 0 && key < 512)
+		io.KeysDown[key] = true;
     }
-    bool keyReleased( const OgreBites::KeyboardEvent &arg )
+	void keyReleased( const SDL_KeyboardEvent &arg )
     {
-        using namespace OgreBites;
-
-        int key = kc2sc(arg.keysym.sym);
+        int key = (arg.keysym.scancode);
         if(key < 0 || key >= 512)
-            return true;
+            return;
 
         ImGuiIO& io = ImGui::GetIO();
 
         io.KeyCtrl = arg.keysym.mod & KMOD_CTRL;
-        io.KeyShift = arg.keysym.mod & SDLK_LSHIFT;
-
+        io.KeyShift = arg.keysym.mod & KMOD_SHIFT;
+		io.KeyAlt = arg.keysym.mod & KMOD_ALT;
+		io.KeySuper = false;
         io.KeysDown[key] = false;
-        return io.WantCaptureKeyboard;
     }
+	void textInput(const SDL_TextInputEvent&arg)
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		io.AddInputCharactersUTF8(arg.text);
+	}
 };
-#endif
 
 template<> ImguiManager* Singleton<ImguiManager>::msSingleton = 0;
 
@@ -194,155 +178,202 @@ ImguiManager::ImguiManager()
 :mSceneMgr(0)
 {
     ImGui::CreateContext();
+	mSceneMgr = NULL;
+	mScreenWidth = 0;
+	mScreenHeight = 0;
 }
 ImguiManager::~ImguiManager()
 {
     ImGui::DestroyContext();
-    mSceneMgr->removeRenderQueueListener(this);
+	Ogre::Root::getSingletonPtr()->removeFrameListener(this);
+
+	Ogre::HlmsManager *hlmsManager = Ogre::Root::getSingletonPtr()->getHlmsManager();
+	Ogre::HlmsUnlit *hlmsUnlit = static_cast<Ogre::HlmsUnlit*>(hlmsManager->getHlms(Ogre::HLMS_UNLIT));
+	Ogre::TextureGpuManager *textureMgr = Ogre::Root::getSingletonPtr()->getRenderSystem()->getTextureGpuManager();
+	
+	if(mFontTex != NULL)
+		textureMgr->destroyTexture(mFontTex);
+	mFontTex = NULL;
+	for (size_t i = 0; i < MAX_NUM_RENDERABLES; i++)
+	{
+		if (mRenderables[i] != NULL)
+		{
+			mRenderables[i]->_setNullDatablock();
+			if (mRenderables[i]->mUnlitDatablock != NULL)
+				hlmsUnlit->destroyDatablock(mRenderables[i]->mUnlitDatablock->getName());
+		}
+	}
 }
 
-void ImguiManager::init(Ogre::SceneManager * mgr)
+void ImguiManager::init(Ogre::Window* win, Ogre::SceneManager* mgr)
 {
-    mSceneMgr  = mgr;
+	mSceneMgr = mgr;
+	mScreenWidth = win->getWidth();
+	mScreenHeight = win->getHeight();
 
-    mSceneMgr->addRenderQueueListener(this);
+	Ogre::Root::getSingletonPtr()->addFrameListener(this);
+	mSceneMgr->addRenderQueueListener(this);
 
-    createFontTexture();
-    createMaterial();
+	createFontTexture();
+	createMaterial();
+	
+	SceneNode* dummyNode = OGRE_NEW SceneNode(0, 0, new NodeMemoryManager(), 0);
+	dummyNode->_getFullTransformUpdated();
+	for (size_t i = 0; i < MAX_NUM_RENDERABLES; i++)
+	{
+		IdType oid = Ogre::Id::generateNewId<Ogre::MovableObject>();
+		mRenderables[i] = new ImguiManager::ImGUIRenderable(oid, &mSceneMgr->_getEntityMemoryManager(Ogre::SCENE_DYNAMIC), mSceneMgr, 224U);
+		mRenderables[i]->setUseIdentityProjection(true);
+		mRenderables[i]->setUseIdentityView(true);
+		mRenderables[i]->setVisibilityFlags((1u<<i));
+		dummyNode->attachObject(mRenderables[i]);
+	}
 }
 
-OgreBites::InputListener* ImguiManager::getInputListener()
+InputListener* ImguiManager::getInputListener()
 {
-#ifdef HAVE_OGRE_BITES
     static ImguiInputListener listener;
     return &listener;
-#else
-    OGRE_EXCEPT(Exception::ERR_INVALID_STATE, "re-build with OgreBites component");
-    return NULL;
-#endif
 }
-
+Ogre::RenderPassDescriptor * ImguiManager::renderPassDesc = NULL;
 //-----------------------------------------------------------------------------------
-void ImguiManager::renderQueueEnded(uint8 queueGroupId, const String& invocation,bool& repeatThisInvocation)
+bool ImguiManager::frameStarted(const FrameEvent& evt)
 {
-    if((queueGroupId != Ogre::RENDER_QUEUE_OVERLAY) || (invocation == "SHADOWS"))
-    {
-        return;
-    }
-    Ogre::RenderSystem* renderSys = Ogre::Root::getSingletonPtr()->getRenderSystem();
-    Ogre::Viewport* vp = renderSys->_getViewport();
-    
-    if (!vp || (!vp->getTarget()->isPrimary()) || mFrameEnded)
-    {
-        return;
-    }
-    
-    mFrameEnded = true;
-    ImGuiIO& io = ImGui::GetIO();
-    
-    // Construct projection matrix, taking texel offset corrections in account (important for DirectX9)
-    // See also:
-    //     - OGRE-API specific hint: http://www.ogre3d.org/forums/viewtopic.php?f=5&p=536881#p536881
-    //     - IMGUI Dx9 demo solution: https://github.com/ocornut/imgui/blob/master/examples/directx9_example/imgui_impl_dx9.cpp#L127-L138
-    const float texelOffsetX = renderSys->getHorizontalTexelOffset();
-    const float texelOffsetY = renderSys->getVerticalTexelOffset();
-    const float L = texelOffsetX;
-    const float R = io.DisplaySize.x + texelOffsetX;
-    const float T = texelOffsetY;
-    const float B = io.DisplaySize.y + texelOffsetY;
-    
-    mRenderable.mXform = Matrix4(   2.0f/(R-L),    0.0f,         0.0f,       (L+R)/(L-R),
-                                    0.0f,         -2.0f/(B-T),   0.0f,       (T+B)/(B-T),
-                                    0.0f,          0.0f,        -1.0f,       0.0f,
-                                    0.0f,          0.0f,         0.0f,       1.0f);
-    
-    // Instruct ImGui to Render() and process the resulting CmdList-s
-    /// Adopted from https://bitbucket.org/ChaosCreator/imgui-ogre2.1-binding
-    /// ... Commentary on OGRE forums: http://www.ogre3d.org/forums/viewtopic.php?f=5&t=89081#p531059
-    ImGui::Render();
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    int vpWidth  = vp->getActualWidth();
-    int vpHeight = vp->getActualHeight();
-    for (int i = 0; i < draw_data->CmdListsCount; ++i)
-    {
-        const ImDrawList* draw_list = draw_data->CmdLists[i];
-        mRenderable.updateVertexData(draw_list->VtxBuffer, draw_list->IdxBuffer);
+	if (mScreenWidth > 0)
+	{
+		Ogre::ImguiManager::getSingleton().newFrame(
+			evt.timeSinceLastFrame,
+			Ogre::Rect(0, 0, mScreenWidth, mScreenHeight));
+		ImGui::ShowDemoWindow();
+		render();
+	}
+	return true;
+}
+//-----------------------------------------------------------------------------------
+void ImguiManager::render()
+{
+	Ogre::RenderSystem* renderSys = Ogre::Root::getSingletonPtr()->getRenderSystem();
+	if (mFrameEnded)
+	{
+		return;
+	}
 
-        unsigned int startIdx = 0;
+	mFrameEnded = true;
+	ImGuiIO& io = ImGui::GetIO();
 
-        for (int j = 0; j < draw_list->CmdBuffer.Size; ++j)
-        {
-            // Create a renderable and fill it's buffers
-            const ImDrawCmd *drawCmd = &draw_list->CmdBuffer[j];
+	// Instruct ImGui to Render() and process the resulting CmdList-s
+	/// Adopted from https://bitbucket.org/ChaosCreator/imgui-ogre2.1-binding
+	/// ... Commentary on OGRE forums: http://www.ogre3d.org/forums/viewtopic.php?f=5&t=89081#p531059
+	
+	ImGui::Render();
+	ImDrawData* draw_data = ImGui::GetDrawData();
+	ImVector<ImDrawVert> vtxBuf = ImVector<ImDrawVert>();
+	ImVector<ImDrawIdx> idxBuf = ImVector<ImDrawIdx>();
 
-            // Set scissoring
-            int scLeft   = static_cast<int>(drawCmd->ClipRect.x); // Obtain bounds
-            int scTop    = static_cast<int>(drawCmd->ClipRect.y);
-            int scRight  = static_cast<int>(drawCmd->ClipRect.z);
-            int scBottom = static_cast<int>(drawCmd->ClipRect.w);
+	Ogre::CompositorManager2 *compositorManager = Root::getSingletonPtr()->getCompositorManager2();
+	Ogre::CompositorNodeDef *nodedef = compositorManager->getNodeDefinitionNonConst("TestMaskWorkspace_Node");
+	CompositorTargetDef* target = nodedef->getTargetPass(0);
+	Ogre::CompositorPassDefVec vec = target->getCompositorPassesNonConst();
 
-            scLeft   = scLeft   < 0 ? 0 : (scLeft  > vpWidth ? vpWidth : scLeft); // Clamp bounds to viewport dimensions
-            scRight  = scRight  < 0 ? 0 : (scRight > vpWidth ? vpWidth : scRight);
-            scTop    = scTop    < 0 ? 0 : (scTop    > vpHeight ? vpHeight : scTop);
-            scBottom = scBottom < 0 ? 0 : (scBottom > vpHeight ? vpHeight : scBottom);
+	uint32 rend_offset = 0;
+	for (int i = 0; i < draw_data->CmdListsCount; ++i)
+	{
+		const ImDrawList* draw_list = draw_data->CmdLists[i];
+		uint32 startIdx = 0;
+		uint32 startVtx = 0;
+		for (int j = 0; j < draw_list->CmdBuffer.Size; ++j)
+		{
+			const ImDrawCmd *drawCmd = &draw_list->CmdBuffer[j];
+			Ogre::TextureGpuManager *textureMgr = Ogre::Root::getSingletonPtr()->getRenderSystem()->getTextureGpuManager();
+			TextureGpu* tex = NULL;
+			if (drawCmd->TextureId != 0)
+				tex = (TextureGpu*)drawCmd->TextureId;
+			else
+				tex = mFontTex;
 
-            if (mRenderable.mMaterial->getSupportedTechniques().empty())
-            {
-                mRenderable.mMaterial->load(); // Support for adding lights run time
-            }
-            Pass * pass = mRenderable.mMaterial->getBestTechnique()->getPass(0);
-            TextureUnitState * st = pass->getTextureUnitState(0);
-            if (drawCmd->TextureId != 0)
-            {
-                Ogre::ResourceHandle handle = (Ogre::ResourceHandle)drawCmd->TextureId;
-                Ogre::TexturePtr tex = Ogre::static_pointer_cast<Ogre::Texture>(
-                    Ogre::TextureManager::getSingleton().getByHandle(handle));
-                if (tex)
-                {
-                    st->setTexture(tex);
-                    st->setTextureFiltering(Ogre::TFO_TRILINEAR);
-                }
-            }
-            else
-            {
-                st->setTexture(mFontTex);
-                st->setTextureFiltering(Ogre::TFO_NONE);
-            }
-            renderSys->setScissorTest(true, scLeft, scTop, scRight, scBottom);
+			startVtx = std::min(draw_list->IdxBuffer[startIdx], draw_list->IdxBuffer[startIdx+1]);
+			for (uint32 k = 0; k < (drawCmd->ElemCount); k++)
+			{
+				idxBuf.push_back(draw_list->IdxBuffer[startIdx+k]-startVtx);
+				for (int l = vtxBuf.size(); l <= idxBuf.back(); l++)
+				{
+					vtxBuf.push_back(draw_list->VtxBuffer[l+startVtx]);
+					vtxBuf.back().pos.x = (vtxBuf.back().pos.x / (Real)mScreenWidth)*2.0f - 1.0f;
+					vtxBuf.back().pos.y = -((vtxBuf.back().pos.y / (Real)mScreenHeight)*2.0f - 1.0f);
+				}
+			}
+			startIdx += drawCmd->ElemCount;
 
-            // Render!
-            mRenderable.mRenderOp.indexData->indexStart = startIdx;
-            mRenderable.mRenderOp.indexData->indexCount = drawCmd->ElemCount;
-            mSceneMgr->_injectRenderWithPass(pass,
-                                             &mRenderable, false);
+			uint32 rend_idx = (rend_offset + j) % MAX_NUM_RENDERABLES;
+			uint32 pass_idx = 2 + rend_idx;
 
-            // Update counts
-            startIdx += drawCmd->ElemCount;
-        }
-    }
-    renderSys->setScissorTest(false);
+			vec[pass_idx]->mVpRect[0].mVpLeft = 0;
+			vec[pass_idx]->mVpRect[0].mVpTop = 0;
+			vec[pass_idx]->mVpRect[0].mVpWidth = 1;
+			vec[pass_idx]->mVpRect[0].mVpHeight = 1;
+			vec[pass_idx]->mVpRect[0].mVpScissorLeft = ((Real)drawCmd->ClipRect.x / (Real)mScreenWidth);
+			vec[pass_idx]->mVpRect[0].mVpScissorTop = ((Real)(drawCmd->ClipRect.y) / (Real)mScreenHeight);
+			vec[pass_idx]->mVpRect[0].mVpScissorWidth = ((Real)(drawCmd->ClipRect.z - drawCmd->ClipRect.x) / (Real)mScreenWidth);
+			vec[pass_idx]->mVpRect[0].mVpScissorHeight = ((Real)(drawCmd->ClipRect.w - drawCmd->ClipRect.y) / (Real)mScreenHeight);
+			
+			mRenderables[rend_idx]->updateVertexData(vtxBuf, idxBuf);
+			
+			Ogre::HlmsManager *hlmsManager = Ogre::Root::getSingletonPtr()->getHlmsManager();
+			Ogre::HlmsUnlit *hlmsUnlit = static_cast<Ogre::HlmsUnlit*>(hlmsManager->getHlms(Ogre::HLMS_UNLIT));
+
+			Ogre::String name = "imgui_";
+			name.append(StringConverter::toString(rend_idx));
+			HlmsUnlitDatablock* datablock =(HlmsUnlitDatablock*) hlmsUnlit->getDatablock(name);
+			HlmsSamplerblock sb;
+			sb.setFiltering(Ogre::TFO_TRILINEAR);
+			datablock->setTexture(0, tex, &sb);
+			mRenderables[rend_idx]->setDatablock(datablock);
+			mRenderables[rend_idx]->mUnlitDatablock = datablock;
+			mRenderables[rend_idx]->setVisible(true);
+			idxBuf.clear();
+			vtxBuf.clear();
+			mRenderables[rend_idx]->mInitialized = true;
+		}
+		rend_offset += draw_list->CmdBuffer.Size;
+	}
+	for (int l = rend_offset; l < MAX_NUM_RENDERABLES; l++)
+	{
+		if(mRenderables[l]->mInitialized)
+			mRenderables[l]->setVisible(false);
+	}
 }
 //-----------------------------------------------------------------------------------
 void ImguiManager::createMaterial()
 {
-    mRenderable.mMaterial = dynamic_pointer_cast<Material>(
-        MaterialManager::getSingleton()
-            .createOrRetrieve("imgui/material", ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME)
-            .first);
-    Pass* mPass = mRenderable.mMaterial->getTechnique(0)->getPass(0);
-    mPass->setCullingMode(CULL_NONE);
-    mPass->setDepthFunction(Ogre::CMPF_ALWAYS_PASS);
-    mPass->setLightingEnabled(false);
-    mPass->setVertexColourTracking(TVC_DIFFUSE);
-    mPass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
-    mPass->setSeparateSceneBlendingOperation(Ogre::SBO_ADD,Ogre::SBO_ADD);
-    mPass->setSeparateSceneBlending(Ogre::SBF_SOURCE_ALPHA,Ogre::SBF_ONE_MINUS_SOURCE_ALPHA,Ogre::SBF_ONE_MINUS_SOURCE_ALPHA,Ogre::SBF_ZERO);
-        
-    TextureUnitState*  mTexUnit =  mPass->createTextureUnitState();
-    mTexUnit->setTexture(mFontTex);
-    mTexUnit->setTextureFiltering(Ogre::TFO_NONE);
+	HlmsMacroblock mb;
+	mb.mCullMode = CULL_NONE;
+	mb.mDepthFunc = Ogre::CMPF_ALWAYS_PASS;
+	mb.mScissorTestEnabled = true;
+	HlmsBlendblock bb;
+	bb.mIsTransparent = true;
+	bb.setBlendType(Ogre::SBT_TRANSPARENT_ALPHA);
+	bb.mSeparateBlend = true;
+	bb.mSourceBlendFactor = Ogre::SBF_SOURCE_ALPHA;
+	bb.mDestBlendFactor = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+	bb.mSourceBlendFactorAlpha = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+	bb.mDestBlendFactorAlpha = Ogre::SBF_ZERO;
+	bb.mBlendOperation = Ogre::SBO_ADD;
+	bb.mBlendOperationAlpha = Ogre::SBO_ADD;
+	
+	for (int i = 0; i < MAX_NUM_RENDERABLES; i++)
+	{
+		Ogre::HlmsManager *hlmsManager = Ogre::Root::getSingletonPtr()->getHlmsManager();
+		Ogre::HlmsUnlit *hlmsUnlit = static_cast<Ogre::HlmsUnlit*>(hlmsManager->getHlms(Ogre::HLMS_UNLIT));
 
-    mRenderable.mMaterial->load();
+		Ogre::String datablockName = "imgui_";
+		datablockName.append(StringConverter::toString(i));
+		Ogre::HlmsUnlitDatablock *datablock = static_cast<Ogre::HlmsUnlitDatablock*>(
+			hlmsUnlit->createDatablock(datablockName,
+				datablockName,
+				mb,
+				bb,
+				Ogre::HlmsParamVec()));
+	}
 }
 
 ImFont* ImguiManager::addFont(const String& name, const String& group)
@@ -397,12 +428,32 @@ void ImguiManager::createFontTexture()
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 
-    mFontTex = TextureManager::getSingleton().createManual(
-        "ImguiFontTex", Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME, TEX_TYPE_2D,
-        width, height, 1, 1, PF_BYTE_RGBA);
+	Ogre::TextureGpuManager *textureMgr = Ogre::Root::getSingletonPtr()->getRenderSystem()->getTextureGpuManager();
+	mFontTex = textureMgr->createOrRetrieveTexture("ImguiFontTex", GpuPageOutStrategy::Discard, Ogre::TextureFlags::ManualTexture,
+		Ogre::TextureTypes::Type2DArray,
+		Ogre::BLANKSTRING, 0u);
+	mFontTex->setPixelFormat(PFG_RGBA8_UNORM);
+	mFontTex->setTextureType(TextureTypes::Type2DArray);
+	mFontTex->setNumMipmaps(1u);
+	mFontTex->setResolution(width, height);
+	StagingTexture *stagingTexture = textureMgr->getStagingTexture(mFontTex->getWidth(),
+		mFontTex->getHeight(),
+		mFontTex->getDepth(),
+		mFontTex->getNumSlices(),
+		mFontTex->getPixelFormat());
+	mFontTex->_transitionTo(GpuResidency::Resident, NULL);
+	mFontTex->_setNextResidencyStatus(GpuResidency::Resident);
 
-    mFontTex->getBuffer()->blitFromMemory(PixelBox(Box(0, 0, width, height), PF_BYTE_RGBA, pixels));
-
+	stagingTexture->startMapRegion();
+	TextureBox texBox = stagingTexture->mapRegion(mFontTex->getWidth(), mFontTex->getHeight(),
+		mFontTex->getDepth(), mFontTex->getNumSlices(),
+		mFontTex->getPixelFormat());
+	const size_t bytesPerRow = mFontTex->_getSysRamCopyBytesPerRow(0);
+	texBox.copyFrom(pixels, mFontTex->getWidth(), mFontTex->getHeight(), bytesPerRow);
+	stagingTexture->stopMapRegion();
+	stagingTexture->upload(texBox, mFontTex, 0, 0, 0, true);
+	textureMgr->removeStagingTexture(stagingTexture);
+	mFontTex->notifyDataIsReady();
     mCodePointRanges.clear(); 
 }
 void ImguiManager::newFrame(float deltaTime,const Ogre::Rect & windowRect)
@@ -417,76 +468,93 @@ void ImguiManager::newFrame(float deltaTime,const Ogre::Rect & windowRect)
 
     // Setup display size (every frame to accommodate for window resizing)
      io.DisplaySize = ImVec2((float)(windowRect.right - windowRect.left), (float)(windowRect.bottom - windowRect.top));
-
+	 
 
     // Start the frame
     ImGui::NewFrame();
 }
 
-ImguiManager::ImGUIRenderable::ImGUIRenderable()
+ImguiManager::ImGUIRenderable::ImGUIRenderable(IdType id, ObjectMemoryManager *objectMemoryManager,
+	SceneManager* manager, uint8 renderQueueId) :
+	MovableObject(id, objectMemoryManager,manager,renderQueueId)
 {
     initImGUIRenderable();
 
     //By default we want ImGUIRenderables to still work in wireframe mode
     setPolygonModeOverrideable( false );
-
 }
 //-----------------------------------------------------------------------------------
 void ImguiManager::ImGUIRenderable::initImGUIRenderable(void)
 {
-    // use identity projection and view matrices
-    mUseIdentityProjection  = true;
-    mUseIdentityView        = true;
-
-    mRenderOp.vertexData = OGRE_NEW VertexData();
-    mRenderOp.indexData  = OGRE_NEW IndexData();
-
-    mRenderOp.vertexData->vertexCount   = 0;
-    mRenderOp.vertexData->vertexStart   = 0;
-
-    mRenderOp.indexData->indexCount = 0;
-    mRenderOp.indexData->indexStart = 0;
-    mRenderOp.operationType             = RenderOperation::OT_TRIANGLE_LIST;
-    mRenderOp.useIndexes                                    = true;
-    mRenderOp.useGlobalInstancingVertexBufferIsAvailable    = false;
-
-    VertexDeclaration* decl     = mRenderOp.vertexData->vertexDeclaration;
-
-    // vertex declaration
-    size_t offset = 0;
-    decl->addElement(0,offset,Ogre::VET_FLOAT2,Ogre::VES_POSITION);
-    offset += VertexElement::getTypeSize( VET_FLOAT2 );
-    decl->addElement(0,offset,Ogre::VET_FLOAT2,Ogre::VES_TEXTURE_COORDINATES,0);
-    offset += VertexElement::getTypeSize( VET_FLOAT2 );
-    decl->addElement(0,offset,Ogre::VET_COLOUR,Ogre::VES_DIFFUSE);
+	mInitialized = false;
+	mUnlitDatablock = NULL;
+	mVertexElements.push_back(Ogre::VertexElement2(Ogre::VertexElementType::VET_FLOAT2, Ogre::VertexElementSemantic::VES_POSITION));
+	mVertexElements.push_back(Ogre::VertexElement2(Ogre::VertexElementType::VET_FLOAT2, Ogre::VertexElementSemantic::VES_TEXTURE_COORDINATES));
+	mVertexElements.push_back(Ogre::VertexElement2(Ogre::VertexElementType::VET_COLOUR, Ogre::VertexElementSemantic::VES_DIFFUSE));
 }
 //-----------------------------------------------------------------------------------
 ImguiManager::ImGUIRenderable::~ImGUIRenderable()
 {
-    OGRE_DELETE mRenderOp.vertexData;
-    OGRE_DELETE mRenderOp.indexData;
+    
+}
+void ImguiManager::ImGUIRenderable::getRenderOperation(v1::RenderOperation& op, bool casterPass)
+{
+	OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
+		"ImGUIRenderable does not implement getRenderOperation."
+		" You've put a v2 object in "
+		"the wrong RenderQueue ID (which is set to be compatible with "
+		"v1::Entity). Do not mix v2 and v1 objects",
+		"ImGUIRenderable::getRenderOperation");
 }
 //-----------------------------------------------------------------------------------
 void ImguiManager::ImGUIRenderable::updateVertexData(const ImVector<ImDrawVert>& vtxBuf, const ImVector<ImDrawIdx>& idxBuf)
 {
-    Ogre::VertexBufferBinding* bind = mRenderOp.vertexData->vertexBufferBinding;
+	VaoManager *vaoManager = mManager->getDestinationRenderSystem()->getVaoManager();
+	if (!mVaoPerLod[0].empty())
+	{		
+		vaoManager->destroyVertexArrayObject(mVaoPerLod[0].back());
+		mVaoPerLod[0].clear();
+		mVaoPerLod[1].clear();
+	}
+	Ogre::IndexBufferPacked *indexBuffer = 0;
 
-    if (bind->getBindings().empty() || bind->getBuffer(0)->getNumVertices() != vtxBuf.size())
-    {
-        bind->setBinding(0, HardwareBufferManager::getSingleton().createVertexBuffer(sizeof(ImDrawVert), vtxBuf.size(), HardwareBuffer::HBU_WRITE_ONLY));
-    }
-    if (!mRenderOp.indexData->indexBuffer || mRenderOp.indexData->indexBuffer->getNumIndexes() != idxBuf.size())
-    {
-        mRenderOp.indexData->indexBuffer =
-            HardwareBufferManager::getSingleton().createIndexBuffer(HardwareIndexBuffer::IT_16BIT, idxBuf.size(), HardwareBuffer::HBU_WRITE_ONLY);
-    }
+	try
+	{
+		indexBuffer = vaoManager->createIndexBuffer(Ogre::IndexBufferPacked::IT_16BIT,
+			idxBuf.size(),
+			Ogre::BT_IMMUTABLE,
+			idxBuf.Data, false);
+	}
+	catch (Ogre::Exception &e)
+	{
+		OGRE_FREE_SIMD(indexBuffer, Ogre::MEMCATEGORY_GEOMETRY);
+		indexBuffer = 0;
+		throw e;
+	}
+	Ogre::VertexBufferPacked *vertexBuffer = 0;
+	try
+	{
+		vertexBuffer = vaoManager->createVertexBuffer(mVertexElements, vtxBuf.size(),
+			BT_IMMUTABLE,
+			vtxBuf.Data, false);
+	}
+	catch (Ogre::Exception &e)
+	{
+		OGRE_FREE_SIMD(vertexBuffer, Ogre::MEMCATEGORY_GEOMETRY);
+		vertexBuffer = 0;
+		throw e;
+	}
+	VertexBufferPackedVec vertexBuffers;
+	vertexBuffers.push_back(vertexBuffer);
+	Ogre::VertexArrayObject *vao = vaoManager->createVertexArrayObject(
+		vertexBuffers, indexBuffer, OT_TRIANGLE_LIST);
 
-    // Copy all vertices
-    bind->getBuffer(0)->writeData(0, vtxBuf.size_in_bytes(), vtxBuf.Data, true);
-    mRenderOp.indexData->indexBuffer->writeData(0, idxBuf.size_in_bytes(), idxBuf.Data, true);
+	mVaoPerLod[0].push_back(vao);
+	mVaoPerLod[1].push_back(vao);
+	Ogre::HlmsManager *hlmsManager = Ogre::Root::getSingletonPtr()->getHlmsManager();
+	Ogre::HlmsUnlit *hlmsUnlit = static_cast<Ogre::HlmsUnlit*>(hlmsManager->getHlms(Ogre::HLMS_UNLIT));
 
-    mRenderOp.vertexData->vertexStart = 0;
-    mRenderOp.vertexData->vertexCount = vtxBuf.size();
+	//mRenderables.push_back(this);
 }
 //-----------------------------------------------------------------------------------
 const LightList& ImguiManager::ImGUIRenderable::getLights(void) const
@@ -494,3 +562,22 @@ const LightList& ImguiManager::ImGUIRenderable::getLights(void) const
     static const LightList l;
     return l;
 }
+const String& ImguiManager::ImGUIRenderable::getMovableType(void) const
+{
+	return ImguiMovableType;
+}
+
+void ImguiManager::renderQueueStarted(RenderQueue *rq, uint8 queueGroupId,
+	const String& invocation, bool& skipThisInvocation)
+{
+	if (queueGroupId == 224U)
+	{
+		for (int i = 0; i < MAX_NUM_RENDERABLES; i++)
+		{
+			if ( mRenderables[i]->mInitialized && mRenderables[i]->isVisible())
+				rq->addRenderableV2(0, queueGroupId, false, mRenderables[i], mRenderables[i]);
+		}
+		
+	}
+}
+
