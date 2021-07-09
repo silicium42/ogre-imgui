@@ -31,13 +31,10 @@ THE SOFTWARE.
 
 ## Compatibility ##
 
-This binding is compatible with both Ogre 1.x and 2.0.
+This binding is compatible with both Ogre 2.1+ (tested on 2.2).
 Render systems supported are:
 
-* D3D9
 * D3D11
-* GL
-* GLES2
 * GL3+
 
 ## Usage ##
