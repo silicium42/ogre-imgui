@@ -97,7 +97,6 @@ namespace Ogre
 			VertexElement2Vec mVertexElements;
 
 			const String ImguiMovableType = "IMGUI";
-
         };
 
         void createFontTexture();

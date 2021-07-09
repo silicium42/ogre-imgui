@@ -319,7 +319,7 @@ void ImguiManager::render()
 				tex = mFontTex;
 
 			idxBuf.resize(drawCmd->ElemCount);
-			std::copy(draw_list->IdxBuffer.Data + startIdx, draw_list->IdxBuffer.Data + (drawCmd->ElemCount) + startIdx, idxBuf.begin());
+			std::copy(draw_list->IdxBuffer.Data + startIdx, draw_list->IdxBuffer.Data + startIdx + drawCmd->ElemCount, idxBuf.begin());
 			startIdx += drawCmd->ElemCount;
 
 			uint32 rend_idx = (rend_offset + j) % MAX_NUM_RENDERABLES;
@@ -348,7 +348,6 @@ void ImguiManager::render()
 			mRenderables[rend_idx]->setDatablock(datablock);
 			mRenderables[rend_idx]->mUnlitDatablock = datablock;
 			mRenderables[rend_idx]->setVisible(true);
-			idxBuf.clear();
 			mRenderables[rend_idx]->mInitialized = true;
 		}
 		vtxBuf.clear();
@@ -487,7 +486,6 @@ void ImguiManager::newFrame(float deltaTime,const Ogre::Rect & windowRect)
     // Setup display size (every frame to accommodate for window resizing)
      io.DisplaySize = ImVec2((float)(windowRect.right - windowRect.left), (float)(windowRect.bottom - windowRect.top));
 	 
-
     // Start the frame
     ImGui::NewFrame();
 }
@@ -549,19 +547,7 @@ void ImguiManager::ImGUIRenderable::updateVertexData(Ogre::VertexBufferPacked *v
 		indexBuffer = 0;
 		throw e;
 	}
-	/*Ogre::VertexBufferPacked *vertexBuffer = 0;
-	try
-	{
-		vertexBuffer = vaoManager->createVertexBuffer(mVertexElements, vtxBuf.size(),
-			BT_IMMUTABLE,
-			vtxBuf.Data, false);
-	}
-	catch (Ogre::Exception &e)
-	{
-		OGRE_FREE_SIMD(vertexBuffer, Ogre::MEMCATEGORY_GEOMETRY);
-		vertexBuffer = 0;
-		throw e;
-	}*/
+
 	VertexBufferPackedVec vertexBuffers;
 	vertexBuffers.push_back(vertexBuffer);
 	Ogre::VertexArrayObject *vao = vaoManager->createVertexArrayObject(
@@ -595,7 +581,6 @@ void ImguiManager::renderQueueStarted(RenderQueue *rq, uint8 queueGroupId,
 			if ( mRenderables[i]->mInitialized && mRenderables[i]->isVisible())
 				rq->addRenderableV2(0, queueGroupId, false, mRenderables[i], mRenderables[i]);
 		}
-		
 	}
 }
 
