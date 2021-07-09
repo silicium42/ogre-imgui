@@ -42,7 +42,7 @@ Render systems supported are:
 * **Compiling**  
   see [CMakeLists.txt](CMakeLists.txt)
 * **Integration**  
-  see [Example.cpp](Example.cpp)
+  The example is broken. You need to use the provided compositor workspace from this script: [Test.compositor](Test.compositor)
 
 You can then use imgui just like you want.
 
