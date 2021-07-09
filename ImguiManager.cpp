@@ -284,6 +284,26 @@ void ImguiManager::render()
 		const ImDrawList* draw_list = draw_data->CmdLists[i];
 		uint32 startIdx = 0;
 		uint32 startVtx = 0;
+		for (int l = 0; l < draw_list->VtxBuffer.Size; l++)
+		{
+			vtxBuf.push_back(draw_list->VtxBuffer[l]);
+			vtxBuf.back().pos.x = (vtxBuf.back().pos.x / (Real)mScreenWidth)*2.0f - 1.0f;
+			vtxBuf.back().pos.y = -((vtxBuf.back().pos.y / (Real)mScreenHeight)*2.0f - 1.0f);
+		}
+		VaoManager *vaoManager = mSceneMgr->getDestinationRenderSystem()->getVaoManager();
+		Ogre::VertexBufferPacked *vertexBuffer = 0;
+		try
+		{
+			vertexBuffer = vaoManager->createVertexBuffer(mRenderables[0]->mVertexElements, vtxBuf.size(),
+				BT_IMMUTABLE,
+				vtxBuf.Data, false);
+		}
+		catch (Ogre::Exception &e)
+		{
+			OGRE_FREE_SIMD(vertexBuffer, Ogre::MEMCATEGORY_GEOMETRY);
+			vertexBuffer = 0;
+			throw e;
+		}
 		for (int j = 0; j < draw_list->CmdBuffer.Size; ++j)
 		{
 			const ImDrawCmd *drawCmd = &draw_list->CmdBuffer[j];
@@ -293,17 +313,10 @@ void ImguiManager::render()
 				tex = (TextureGpu*)drawCmd->TextureId;
 			else
 				tex = mFontTex;
-
-			startVtx = std::min(draw_list->IdxBuffer[startIdx], draw_list->IdxBuffer[startIdx+1]);
+			
 			for (uint32 k = 0; k < (drawCmd->ElemCount); k++)
 			{
-				idxBuf.push_back(draw_list->IdxBuffer[startIdx+k]-startVtx);
-				for (int l = vtxBuf.size(); l <= idxBuf.back(); l++)
-				{
-					vtxBuf.push_back(draw_list->VtxBuffer[l+startVtx]);
-					vtxBuf.back().pos.x = (vtxBuf.back().pos.x / (Real)mScreenWidth)*2.0f - 1.0f;
-					vtxBuf.back().pos.y = -((vtxBuf.back().pos.y / (Real)mScreenHeight)*2.0f - 1.0f);
-				}
+				idxBuf.push_back(draw_list->IdxBuffer[startIdx+k]);
 			}
 			startIdx += drawCmd->ElemCount;
 
@@ -319,7 +332,7 @@ void ImguiManager::render()
 			vec[pass_idx]->mVpRect[0].mVpScissorWidth = ((Real)(drawCmd->ClipRect.z - drawCmd->ClipRect.x) / (Real)mScreenWidth);
 			vec[pass_idx]->mVpRect[0].mVpScissorHeight = ((Real)(drawCmd->ClipRect.w - drawCmd->ClipRect.y) / (Real)mScreenHeight);
 			
-			mRenderables[rend_idx]->updateVertexData(vtxBuf, idxBuf);
+			mRenderables[rend_idx]->updateVertexData(vertexBuffer, idxBuf);
 			
 			Ogre::HlmsManager *hlmsManager = Ogre::Root::getSingletonPtr()->getHlmsManager();
 			Ogre::HlmsUnlit *hlmsUnlit = static_cast<Ogre::HlmsUnlit*>(hlmsManager->getHlms(Ogre::HLMS_UNLIT));
@@ -334,9 +347,9 @@ void ImguiManager::render()
 			mRenderables[rend_idx]->mUnlitDatablock = datablock;
 			mRenderables[rend_idx]->setVisible(true);
 			idxBuf.clear();
-			vtxBuf.clear();
 			mRenderables[rend_idx]->mInitialized = true;
 		}
+		vtxBuf.clear();
 		rend_offset += draw_list->CmdBuffer.Size;
 	}
 	for (int l = rend_offset; l < MAX_NUM_RENDERABLES; l++)
@@ -510,7 +523,7 @@ void ImguiManager::ImGUIRenderable::getRenderOperation(v1::RenderOperation& op, 
 		"ImGUIRenderable::getRenderOperation");
 }
 //-----------------------------------------------------------------------------------
-void ImguiManager::ImGUIRenderable::updateVertexData(const ImVector<ImDrawVert>& vtxBuf, const ImVector<ImDrawIdx>& idxBuf)
+void ImguiManager::ImGUIRenderable::updateVertexData(Ogre::VertexBufferPacked *vertexBuffer, const ImVector<ImDrawIdx>& idxBuf)
 {
 	VaoManager *vaoManager = mManager->getDestinationRenderSystem()->getVaoManager();
 	if (!mVaoPerLod[0].empty())
@@ -534,7 +547,7 @@ void ImguiManager::ImGUIRenderable::updateVertexData(const ImVector<ImDrawVert>&
 		indexBuffer = 0;
 		throw e;
 	}
-	Ogre::VertexBufferPacked *vertexBuffer = 0;
+	/*Ogre::VertexBufferPacked *vertexBuffer = 0;
 	try
 	{
 		vertexBuffer = vaoManager->createVertexBuffer(mVertexElements, vtxBuf.size(),
@@ -546,7 +559,7 @@ void ImguiManager::ImGUIRenderable::updateVertexData(const ImVector<ImDrawVert>&
 		OGRE_FREE_SIMD(vertexBuffer, Ogre::MEMCATEGORY_GEOMETRY);
 		vertexBuffer = 0;
 		throw e;
-	}
+	}*/
 	VertexBufferPackedVec vertexBuffers;
 	vertexBuffers.push_back(vertexBuffer);
 	Ogre::VertexArrayObject *vao = vaoManager->createVertexArrayObject(

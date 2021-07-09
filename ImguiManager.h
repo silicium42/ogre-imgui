@@ -80,7 +80,7 @@ namespace Ogre
 				SceneManager* manager, uint8 renderQueueId);
             ~ImGUIRenderable();
 
-            void updateVertexData(const ImVector<ImDrawVert>& vtxBuf, const ImVector<ImDrawIdx>& idxBuf);
+            void updateVertexData(Ogre::VertexBufferPacked *vertexBuffer, const ImVector<ImDrawIdx>& idxBuf);
             Real getSquaredViewDepth(const Camera* cam) const   { (void)cam; return 0; }
 
             virtual const MaterialPtr& getMaterial(void) const { return mMaterial; }
