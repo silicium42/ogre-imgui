@@ -284,12 +284,15 @@ void ImguiManager::render()
 		const ImDrawList* draw_list = draw_data->CmdLists[i];
 		uint32 startIdx = 0;
 		uint32 startVtx = 0;
+
+		vtxBuf.resize(draw_list->VtxBuffer.Size);
+		std::copy(draw_list->VtxBuffer.Data, draw_list->VtxBuffer.Data + (draw_list->VtxBuffer.Size), vtxBuf.begin());
 		for (int l = 0; l < draw_list->VtxBuffer.Size; l++)
 		{
-			vtxBuf.push_back(draw_list->VtxBuffer[l]);
-			vtxBuf.back().pos.x = (vtxBuf.back().pos.x / (Real)mScreenWidth)*2.0f - 1.0f;
-			vtxBuf.back().pos.y = -((vtxBuf.back().pos.y / (Real)mScreenHeight)*2.0f - 1.0f);
+			vtxBuf[l].pos.x = (vtxBuf[l].pos.x / (Real)mScreenWidth)*2.0f - 1.0f;
+			vtxBuf[l].pos.y = -((vtxBuf[l].pos.y / (Real)mScreenHeight)*2.0f - 1.0f);
 		}
+
 		VaoManager *vaoManager = mSceneMgr->getDestinationRenderSystem()->getVaoManager();
 		Ogre::VertexBufferPacked *vertexBuffer = 0;
 		try
@@ -304,6 +307,7 @@ void ImguiManager::render()
 			vertexBuffer = 0;
 			throw e;
 		}
+
 		for (int j = 0; j < draw_list->CmdBuffer.Size; ++j)
 		{
 			const ImDrawCmd *drawCmd = &draw_list->CmdBuffer[j];
@@ -313,11 +317,9 @@ void ImguiManager::render()
 				tex = (TextureGpu*)drawCmd->TextureId;
 			else
 				tex = mFontTex;
-			
-			for (uint32 k = 0; k < (drawCmd->ElemCount); k++)
-			{
-				idxBuf.push_back(draw_list->IdxBuffer[startIdx+k]);
-			}
+
+			idxBuf.resize(drawCmd->ElemCount);
+			std::copy(draw_list->IdxBuffer.Data + startIdx, draw_list->IdxBuffer.Data + (drawCmd->ElemCount) + startIdx, idxBuf.begin());
 			startIdx += drawCmd->ElemCount;
 
 			uint32 rend_idx = (rend_offset + j) % MAX_NUM_RENDERABLES;
