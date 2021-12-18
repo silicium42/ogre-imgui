@@ -63,10 +63,10 @@ namespace Ogre
 		virtual void renderQueueStarted(RenderQueue *rq, uint8 queueGroupId, const String& invocation, bool& skipThisInvocation);
 
 		InputListener* getInputListener();
+		void setDisplayFunction(void(*df)(bool*)) { mDisplayFunction = df; };
 
         static ImguiManager& getSingleton(void);
         static ImguiManager* getSingletonPtr(void);
-		static Ogre::RenderPassDescriptor *renderPassDesc;
 
     protected:
 
@@ -104,11 +104,12 @@ namespace Ogre
 
 		SceneManager*				mSceneMgr;
 		uint32 mScreenWidth, mScreenHeight;
-        ImGUIRenderable             *mRenderables[MAX_NUM_RENDERABLES];
+        ImGUIRenderable             *mRenderables[MAX_NUM_RENDERABLES] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
         TextureGpu*                  mFontTex;
 		void(*mDisplayFunction)(bool*);
 
         bool                        mFrameEnded;
+		Ogre::VertexBufferPacked *vertexBuffer[MAX_NUM_RENDERABLES] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 
         typedef std::vector<ImWchar> CodePointRange;
         std::vector<CodePointRange> mCodePointRanges;
